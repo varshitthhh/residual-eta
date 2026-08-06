@@ -153,6 +153,15 @@ uvicorn app:app --workers 4
 Open `http://127.0.0.1:8000`. For development (auto-reload, not representative of real
 performance), use `uvicorn app:app --reload` instead — single-worker only.
 
+
+## Results
+
+![Segment breakdown - dispatch](dispatch_by_borough.png)
+![Segment breakdown - trip](trip_by_borough.png)
+![Throughput improvement](throughput_comparison.png)
+![Concurrency behavior](concurrency_sweep.png)
+
+
 ## API
 
 | Endpoint | Method | Description |
