@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Rideshare ETA</title>
+<style>
+  body { font-family: system-ui, sans-serif; max-width: 640px; margin: 40px auto; padding: 0 16px; }
+  label { display: block; margin-top: 12px; font-weight: 600; }
+  select, input { width: 100%; padding: 6px; margin-top: 4px; }
+  button { margin-top: 20px; padding: 10px 20px; font-size: 16px; cursor: pointer; }
+  .result { margin-top: 24px; padding: 16px; border: 1px solid #ccc; border-radius: 8px; }
+  .leg { margin-bottom: 12px; }
+  .explain { font-size: 13px; color: #555; margin-top: 4px; }
+  .error { color: #b00020; }
+</style>
+</head>
+<body>
+<h2>Two-Leg Rideshare ETA</h2>
+
+<label>Pickup zone</label>
+<select id="pickup_zone"></select>
+
+<label>Dropoff zone</label>
+<select id="dropoff_zone"></select>
+
+<label>Request date/time</label>
+<input type="datetime-local" id="request_datetime">
+
+<label>Company</label>
+<select id="company"></select>
+
+<label>Weather</label>
+<select id="weather">
+  <option value="dry">Dry</option>
+  <option value="light_rain">Light rain</option>
+  <option value="heavy_rain">Heavy rain</option>
+  <option value="snow">Snow</option>
+</select>
+
+<label><input type="checkbox" id="shared_request" style="width:auto;display:inline;"> Shared ride requested</label>
+
+<label>Trip miles (optional — leave blank to estimate)</label>
+<input type="number" id="trip_miles_override" step="0.1" placeholder="auto-estimated if blank">
+
+<button onclick="getPrediction()">Predict ETA</button>
+
+<div id="output"></div>
+
+<script>
+console.log("index.html v2 loaded -- formatExplanation fix active");
+
+async function init() {
+  const [zonesData, categoriesData] = await Promise.all([
+    fetch("/zones").then(r => r.json()),
+    fetch("/categories").then(r => r.json()),
+  ]);
+
+  const validPickup = new Set(categoriesData.valid_pickup_zones);
+  const validDropoff = new Set(categoriesData.valid_dropoff_zones);
+  const pickupSel = document.getElementById("pickup_zone");
+  const dropoffSel = document.getElementById("dropoff_zone");
+
+  zonesData.forEach(z => {
+    if (validPickup.has(z.location_id)) {
+      pickupSel.appendChild(new Option(`${z.zone} (${z.borough})`, z.location_id));
+    }
+    if (validDropoff.has(z.location_id)) {
+      dropoffSel.appendChild(new Option(`${z.zone} (${z.borough})`, z.location_id));
+    }
+  });
+
+  const companySel = document.getElementById("company");
+  categoriesData.company.forEach(c => companySel.appendChild(new Option(c, c)));
+}
+init();
+
+document.getElementById("request_datetime").value = new Date().toISOString().slice(0, 16);
+
+function formatExplanation(explanation) {
+  const parts = explanation.feature_contributions.map(
+    f => `${f.feature}: ${f.contribution_seconds > 0 ? "+" : ""}${f.contribution_seconds}s`
+  );
+  return `base correction: ${explanation.base_value_seconds}s | ${parts.join(" | ")}`;
+}
+
+async function getPrediction() {
+  const body = {
+    pickup_zone: parseInt(document.getElementById("pickup_zone").value),
+    dropoff_zone: parseInt(document.getElementById("dropoff_zone").value),
+    request_datetime: document.getElementById("request_datetime").value,
+    company: document.getElementById("company").value,
+    weather: document.getElementById("weather").value,
+    shared_request: document.getElementById("shared_request").checked,
+  };
+  const milesInput = document.getElementById("trip_miles_override").value;
+  if (milesInput) body.trip_miles_override = parseFloat(milesInput);
+
+  const output = document.getElementById("output");
+  output.innerHTML = "Predicting...";
+
+  try {
+    const res = await fetch("/predict", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(body),
+    });
+    if (!res.ok) {
+      const err = await res.json();
+      output.innerHTML = `<p class="error">${err.detail}</p>`;
+      return;
+    }
+    const data = await res.json();
+    output.innerHTML = `
+      <div class="result">
+        <div class="leg"><b>Dispatch ETA:</b> ${data.dispatch_eta_seconds.p50}s (likely) / ${data.dispatch_eta_seconds.p90}s (safe estimate)
+          <div class="explain">${formatExplanation(data.dispatch_explanation)}</div>
+        </div>
+        <div class="leg"><b>Trip ETA:</b> ${data.trip_eta_seconds.p50}s (likely) / ${data.trip_eta_seconds.p90}s (safe estimate)
+          <div class="explain">${formatExplanation(data.trip_explanation)}</div>
+        </div>
+        <div class="leg"><b>Total ETA:</b> ${data.total_eta_seconds.p50}s (likely) / ~${data.total_eta_seconds.p90_approx}s (safe estimate, approximate)</div>
+        <div><i>Trip distance used: ${data.trip_miles_used} miles (straight-line estimate unless overridden)</i></div>
+      </div>`;
+  } catch (e) {
+    output.innerHTML = `<p class="error">Request failed: ${e}</p>`;
+  }
+}
+</script>
+</body>
+</html>
