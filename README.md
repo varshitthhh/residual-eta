@@ -1,5 +1,3 @@
-**Save this as `README.md` in your project root** (`C:\Users\sriva\Downloads\rideshare-eta\README.md`):
-
 ```markdown
 # Two-Leg Rideshare ETA — Residual-Corrected, Calibrated Prediction System
 
