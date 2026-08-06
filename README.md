@@ -5,6 +5,9 @@ the driver arrives (dispatch), and how long the ride itself takes (trip) — ins
 one end-to-end guess. Trained on 55M real NYC rideshare trips, deployed as a working
 prediction API with explainability and measured latency/throughput.
 
+## Demo
+![App screenshot](screenshot.png)
+
 ---
 
 ## In plain terms
