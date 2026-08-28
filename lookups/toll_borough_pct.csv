@@ -1,31 +1,31 @@
 pu_borough,do_borough,toll_borough_pct
+Bronx,Queens,0.9918714748743077
+Bronx,Brooklyn,0.899611581920904
+Manhattan,Brooklyn,0.337292118142638
+Manhattan,Queens,0.7022147804959498
+Queens,Queens,0.006495337918195083
+Queens,Brooklyn,0.019940197220039053
 Staten Island,Staten Island,0.023325250624298795
 Staten Island,Manhattan,0.8212460063897764
 Staten Island,EWR,1.0
 Staten Island,Bronx,0.8221343873517787
-Bronx,Queens,0.9918714748743077
-Bronx,Brooklyn,0.899611581920904
-Queens,Queens,0.006495337918195083
-Queens,Brooklyn,0.019940197220039053
-Manhattan,Brooklyn,0.337292118142638
-Manhattan,Queens,0.7022147804959498
 Brooklyn,Bronx,0.8435767174685393
 Brooklyn,Manhattan,0.3521434228076025
 Brooklyn,EWR,1.0
 Brooklyn,Staten Island,0.999721401905611
-Staten Island,Brooklyn,0.18450144311931602
-Staten Island,Queens,0.22128440366972477
 Bronx,Bronx,0.004578750217298639
 Bronx,Manhattan,0.23063504547562869
 Bronx,EWR,1.0
-Bronx,Staten Island,1.0
-Queens,Bronx,0.9716044643101983
-Queens,Manhattan,0.7262550944283767
-Queens,EWR,1.0
-Queens,Staten Island,0.9992641648270787
 Manhattan,Manhattan,0.00928458109422647
-Manhattan,EWR,0.9999786324786325
 Manhattan,Bronx,0.16168394324267793
+Manhattan,EWR,0.9999786324786325
 Manhattan,Staten Island,0.9997823721436344
+Queens,Manhattan,0.7262550944283767
+Queens,Bronx,0.9716044643101983
+Queens,Staten Island,0.9992641648270787
+Queens,EWR,1.0
+Staten Island,Brooklyn,0.18450144311931602
+Staten Island,Queens,0.22128440366972477
 Brooklyn,Queens,0.025407300724967944
 Brooklyn,Brooklyn,0.002309896937049179
+Bronx,Staten Island,1.0

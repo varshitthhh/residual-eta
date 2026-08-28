@@ -3,3 +3,6 @@
 .venv/
 venv/
 .env
+
+final_artifacts.zip
+__pycache__/app.cpython-313.pyc

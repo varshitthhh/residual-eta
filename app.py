@@ -49,24 +49,27 @@ zone_lookup = zones.set_index("location_id").to_dict("index")
 
 dispatch_zone_hour = pd.read_csv(LOOKUPS_DIR / "dispatch_zone_hour.csv")
 dispatch_borough_hour = pd.read_csv(LOOKUPS_DIR / "dispatch_borough_hour.csv")
-speed_by_hour = pd.read_csv(LOOKUPS_DIR / "speed_by_hour.csv").set_index("hour")["avg_mph"].to_dict()
 toll_route_pct = pd.read_csv(LOOKUPS_DIR / "toll_route_pct.csv")
 toll_borough_pct = pd.read_csv(LOOKUPS_DIR / "toll_borough_pct.csv")
 
+# OSRM zone-to-zone road-network distance/duration — replaces the old
+# trip_miles + speed_by_hour formula entirely. OSRM duration IS the trip
+# baseline now; no separate speed lookup needed.
+osrm_df = pd.read_csv(LOOKUPS_DIR / "osrm_zone_matrix.csv")
+osrm_lookup = {(row.pu, row.do): (row.osrm_distance_m, row.osrm_duration_s) for row in osrm_df.itertuples()}
+
 recent_demand = pd.read_csv(LOOKUPS_DIR / "recent_zone_demand_snapshot.csv").set_index("location_id")["recent_zone_demand_snapshot"].to_dict()
-recent_speed = pd.read_csv(LOOKUPS_DIR / "recent_zone_speed_snapshot.csv").set_index("location_id")["recent_zone_speed_snapshot"].to_dict()
 # fallback for a zone missing from the snapshot: citywide average of what we do have.
 # Demo simplification -- the original training pipeline filled gaps with a
 # TRAIN-period zone-level average that lives only inside the Colab warehouse
 # and wasn't exported. This is a reasonable stand-in, not the identical fallback.
 fallback_demand = float(np.mean(list(recent_demand.values())))
-fallback_speed = float(np.mean(list(recent_speed.values())))
 
 DISPATCH_FEATURES = ["PULocationID", "pu_borough", "company", "dispatch_weather_sev",
-                      "dispatch_hour", "day_of_week", "recent_zone_demand_filled"]
-TRIP_FEATURES = ["PULocationID", "DOLocationID", "do_borough", "trip_weather_sev",
-                  "trip_hour", "day_of_week", "recent_zone_speed_filled",
-                  "trip_miles", "toll_route_pct_filled", "shared_request_flag"]
+                      "dispatch_hour", "day_of_week", "is_holiday", "recent_zone_demand_filled"]
+TRIP_FEATURES = ["PULocationID", "DOLocationID", "pu_borough", "do_borough", "trip_weather_sev",
+                  "trip_hour", "day_of_week", "is_holiday",
+                  "osrm_distance_m", "osrm_baseline_duration", "toll_route_pct_filled", "shared_request_flag"]
 CATEGORICAL_COLS = ["PULocationID", "DOLocationID", "pu_borough", "do_borough", "company",
                      "dispatch_weather_sev", "trip_weather_sev", "shared_request_flag"]
 
@@ -78,15 +81,6 @@ class ETARequest(BaseModel):
     company: str                     # e.g. "HV0003"
     weather: str = "dry"             # dry | light_rain | heavy_rain | snow
     shared_request: bool = False
-    trip_miles_override: Optional[float] = None   # pass real distance if you know it
-
-
-def haversine_miles(lat1, lon1, lat2, lon2):
-    r = 3958.8
-    p1, p2 = np.radians(lat1), np.radians(lat2)
-    dp, dl = np.radians(lat2 - lat1), np.radians(lon2 - lon1)
-    a = np.sin(dp / 2) ** 2 + np.cos(p1) * np.cos(p2) * np.sin(dl / 2) ** 2
-    return r * 2 * np.arcsin(np.sqrt(a))
 
 
 def duckdb_day_of_week(dt: datetime) -> int:
@@ -115,11 +109,11 @@ def get_dispatch_baseline(pu_zone: int, hour: int) -> float:
     raise HTTPException(400, f"No dispatch data available anywhere for hour {hour}")
 
 
-def get_trip_baseline(trip_miles: float, hour: int) -> float:
-    avg_mph = speed_by_hour.get(hour)
-    if avg_mph is None:
-        raise HTTPException(400, f"No speed baseline for hour {hour}")
-    return trip_miles / avg_mph * 3600
+def get_osrm_features(pu_zone: int, do_zone: int) -> tuple[float, float]:
+    pair = osrm_lookup.get((pu_zone, do_zone))
+    if pair is None:
+        raise HTTPException(400, f"No OSRM route data for zone pair ({pu_zone}, {do_zone})")
+    return pair  # (distance_m, duration_s)
 
 
 def get_toll_pct(pu_zone: int, do_zone: int, pu_borough: str, do_borough: str) -> float:
@@ -193,29 +187,34 @@ def predict(req: ETARequest):
     pu_borough = zone_lookup[req.pickup_zone]["borough"]
     do_borough = zone_lookup[req.dropoff_zone]["borough"]
 
-    if req.trip_miles_override is not None:
-        trip_miles = req.trip_miles_override
-    else:
-        pu, do = zone_lookup[req.pickup_zone], zone_lookup[req.dropoff_zone]
-        trip_miles = haversine_miles(pu["lat"], pu["lon"], do["lat"], do["lon"])
+    osrm_distance_m, osrm_duration_s = get_osrm_features(req.pickup_zone, req.dropoff_zone)
+    trip_baseline = osrm_duration_s
+
+    # is_holiday: always 0 in live serving. Training used 3 specific 2024 dates
+    # (Feb 19, Jun 19, Oct 14) as a stand-in for holiday effects -- meaningless
+    # to match against future request dates, so we don't try. Documented
+    # limitation, not a bug: the model learned a small holiday adjustment that
+    # simply never fires at serving time.
+    is_holiday = 0
 
     recent_demand_val = recent_demand.get(req.pickup_zone, fallback_demand)
-    recent_speed_val = recent_speed.get(req.pickup_zone, fallback_speed)
     toll_pct = get_toll_pct(req.pickup_zone, req.dropoff_zone, pu_borough, do_borough)
 
     dispatch_baseline = get_dispatch_baseline(req.pickup_zone, dispatch_hour)
-    trip_baseline = get_trip_baseline(trip_miles, trip_hour)
 
     dispatch_row = build_row({
         "PULocationID": req.pickup_zone, "pu_borough": pu_borough, "company": req.company,
         "dispatch_weather_sev": req.weather, "dispatch_hour": dispatch_hour,
-        "day_of_week": day_of_week, "recent_zone_demand_filled": recent_demand_val,
+        "day_of_week": day_of_week, "is_holiday": is_holiday,
+        "recent_zone_demand_filled": recent_demand_val,
     }, DISPATCH_FEATURES)
 
     trip_row = build_row({
-        "PULocationID": req.pickup_zone, "DOLocationID": req.dropoff_zone, "do_borough": do_borough,
+        "PULocationID": req.pickup_zone, "DOLocationID": req.dropoff_zone,
+        "pu_borough": pu_borough, "do_borough": do_borough,
         "trip_weather_sev": req.weather, "trip_hour": trip_hour, "day_of_week": day_of_week,
-        "recent_zone_speed_filled": recent_speed_val, "trip_miles": trip_miles,
+        "is_holiday": is_holiday,
+        "osrm_distance_m": osrm_distance_m, "osrm_baseline_duration": osrm_duration_s,
         "toll_route_pct_filled": toll_pct, "shared_request_flag": "Y" if req.shared_request else "N",
     }, TRIP_FEATURES)
 
@@ -240,7 +239,8 @@ def predict(req: ETARequest):
             "p50": round(dispatch_p50 + trip_p50, 1),
             "p90_approx": round(dispatch_p90 + trip_p90, 1),
         },
-        "trip_miles_used": round(trip_miles, 2),
+        "osrm_distance_m_used": round(osrm_distance_m, 1),
+        "osrm_duration_s_used": round(osrm_duration_s, 1),
         "dispatch_explanation": dispatch_explanation,
         "trip_explanation": trip_explanation,
     }

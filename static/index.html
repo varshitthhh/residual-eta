@@ -39,9 +39,6 @@
 
 <label><input type="checkbox" id="shared_request" style="width:auto;display:inline;"> Shared ride requested</label>
 
-<label>Trip miles (optional — leave blank to estimate)</label>
-<input type="number" id="trip_miles_override" step="0.1" placeholder="auto-estimated if blank">
-
 <button onclick="getPrediction()">Predict ETA</button>
 
 <div id="output"></div>
@@ -92,8 +89,6 @@ async function getPrediction() {
     weather: document.getElementById("weather").value,
     shared_request: document.getElementById("shared_request").checked,
   };
-  const milesInput = document.getElementById("trip_miles_override").value;
-  if (milesInput) body.trip_miles_override = parseFloat(milesInput);
 
   const output = document.getElementById("output");
   output.innerHTML = "Predicting...";
@@ -119,7 +114,7 @@ async function getPrediction() {
           <div class="explain">${formatExplanation(data.trip_explanation)}</div>
         </div>
         <div class="leg"><b>Total ETA:</b> ${data.total_eta_seconds.p50}s (likely) / ~${data.total_eta_seconds.p90_approx}s (safe estimate, approximate)</div>
-        <div><i>Trip distance used: ${data.trip_miles_used} miles (straight-line estimate unless overridden)</i></div>
+        <div><i>Route: ${(data.osrm_distance_m_used / 1609.34).toFixed(2)} miles via OSRM road network (~${(data.osrm_duration_s_used / 60).toFixed(1)} min baseline)</i></div>
       </div>`;
   } catch (e) {
     output.innerHTML = `<p class="error">Request failed: ${e}</p>`;
